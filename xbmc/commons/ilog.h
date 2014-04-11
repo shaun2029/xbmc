@@ -55,6 +55,7 @@
 #define LOGWEBSERVER  (1 << (LOGMASKBIT + 11))
 #define LOGDATABASE   (1 << (LOGMASKBIT + 12))
 #define LOGAVTIMING   (1 << (LOGMASKBIT + 13))
+#define LOGOMXPLAYER  (1 << (LOGMASKBIT + 16))
 
 #include "utils/params_check_macros.h"
 

@@ -3134,6 +3134,11 @@ msgctxt "#683"
 msgid "Verbose logging of [B]audio/video timing information[/B]"
 msgstr ""
 
+#: xbmc/settings/AdvancedSettings.cpp
+msgctxt "#697"
+msgid "Verbose logging for OMXPLAYER"
+msgstr ""
+
 #empty strings from id 684 to 699
 
 #: xbmc/music/MusicDatabase.cpp
