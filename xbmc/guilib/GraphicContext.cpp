@@ -35,6 +35,7 @@
 #include "input/InputManager.h"
 #include "GUIWindowManager.h"
 #include "ServiceBroker.h"
+#include "utils/log.h"
 
 using namespace KODI::MESSAGING;
 
@@ -1172,6 +1173,7 @@ void CGraphicContext::Flip(bool rendered, bool videoLayer)
 
   if(m_stereoMode != m_nextStereoMode)
   {
+    CLog::Log(LOGDEBUG, "CGraphicContext::Flip stereo:%d->%d", m_stereoMode, m_nextStereoMode);
     m_stereoMode = m_nextStereoMode;
     SetVideoResolution(GetVideoResolution(), true);
     g_windowManager.SendMessage(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_RENDERER_RESET);
