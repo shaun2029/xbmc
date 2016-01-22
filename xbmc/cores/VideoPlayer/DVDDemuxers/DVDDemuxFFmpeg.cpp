@@ -27,6 +27,7 @@
 #include "cores/FFmpeg.h"
 #include "cores/VideoPlayer/Interface/Addon/TimingConstants.h" // for DVD_TIME_BASE
 #include "DVDCodecs/DVDCodecUtils.h"
+#include "DemuxMVC.h"
 #include "DVDDemuxUtils.h"
 #include "DVDInputStreams/DVDInputStream.h"
 #include "DVDInputStreams/DVDInputStreamFFmpeg.h"
@@ -179,6 +180,7 @@ CDVDDemuxFFmpeg::CDVDDemuxFFmpeg() : CDVDDemux()
   m_bMatroska = false;
   m_bAVI = false;
   m_bSup = false;
+  m_pSSIF = nullptr;
   m_speed = DVD_PLAYSPEED_NORMAL;
   m_program = UINT_MAX;
   m_pkt.result = -1;
@@ -514,6 +516,16 @@ bool CDVDDemuxFFmpeg::Open(CDVDInputStream* pInput, bool streaminfo, bool filein
 
   UpdateCurrentPTS();
 
+  if (!fileinfo && m_pInput->IsStreamType(DVDSTREAM_TYPE_BLURAY))
+  {
+    CDVDInputStreamBluray *bluRay = static_cast<CDVDInputStreamBluray*>(m_pInput);
+    if (bluRay->HasMVC())
+    {
+      SAFE_DELETE(m_pSSIF);
+      m_pSSIF = new CDemuxStreamSSIF();
+      m_pSSIF->SetBluRay(bluRay);
+    }
+  }
   // in case of mpegts and we have not seen pat/pmt, defer creation of streams
   if (!skipCreateStreams || m_pFormatContext->nb_programs > 0)
   {
@@ -584,6 +596,8 @@ void CDVDDemuxFFmpeg::Dispose()
   m_pkt.result = -1;
   av_packet_unref(&m_pkt.pkt);
 
+  SAFE_DELETE(m_pSSIF);
+
   if (m_pFormatContext)
   {
     if (m_ioContext && m_pFormatContext->pb && m_pFormatContext->pb != m_ioContext)
@@ -633,6 +647,9 @@ void CDVDDemuxFFmpeg::Flush()
   m_displayTime = 0;
   m_dtsAtDisplayTime = DVD_NOPTS_VALUE;
   m_seekToKeyFrame = false;
+
+  if (m_pSSIF)
+    m_pSSIF->Flush();
 }
 
 void CDVDDemuxFFmpeg::Abort()
@@ -918,6 +935,17 @@ DemuxPacket* CDVDDemuxFFmpeg::Read()
     {
       Flush();
     }
+    else if (IsProgramChange())
+    {
+      // update streams
+      CreateStreams(m_program);
+
+      pPacket = CDVDDemuxUtils::AllocateDemuxPacket(0);
+      pPacket->iStreamId = DMX_SPECIALID_STREAMCHANGE;
+      pPacket->demuxerId = m_demuxerId;
+
+      return pPacket;
+    }
     // check size and stream index for being in a valid range
     else if (m_pkt.pkt.size < 0 ||
              m_pkt.pkt.stream_index < 0 ||
@@ -935,6 +963,9 @@ DemuxPacket* CDVDDemuxFFmpeg::Read()
 
       m_pkt.result = -1;
       av_packet_unref(&m_pkt.pkt);
+
+      if (m_pSSIF)
+        m_pSSIF->Flush();
     }
     else
     {
@@ -956,7 +987,8 @@ DemuxPacket* CDVDDemuxFFmpeg::Read()
 
       if (IsVideoReady())
       {
-        if (m_program != UINT_MAX)
+        // libavformat is confused by the interleaved SSIF.
+        if ((!m_pSSIF || m_pSSIF->IsBluRay()) && m_program != UINT_MAX)
         {
           /* check so packet belongs to selected program */
           for (unsigned int i = 0; i < m_pFormatContext->programs[m_program]->nb_stream_indexes; i++)
@@ -1092,6 +1124,12 @@ DemuxPacket* CDVDDemuxFFmpeg::Read()
         pPacket->recoveryPoint = m_seekToKeyFrame;
       m_seekToKeyFrame = false;
     }
+    if (stream && m_pSSIF)
+    {
+      pPacket = m_pSSIF->AddPacket(pPacket);
+      if (stream->type == STREAM_DATA && stream->codec == AV_CODEC_ID_H264_MVC && pPacket->iSize)
+        stream = GetStream(pPacket->iStreamId);
+    }
     if (!stream)
     {
       CDVDDemuxUtils::FreeDemuxPacket(pPacket);
@@ -1120,6 +1158,9 @@ bool CDVDDemuxFFmpeg::SeekTime(double time, bool backwards, double *startpts)
 
   m_pkt.result = -1;
   av_packet_unref(&m_pkt.pkt);
+
+  if (m_pSSIF)
+    m_pSSIF->Flush();
 
   CDVDInputStream::IPosTime* ist = m_pInput->GetIPosTime();
   if (ist)
@@ -1205,6 +1246,9 @@ bool CDVDDemuxFFmpeg::SeekByte(int64_t pos)
 
   m_pkt.result = -1;
   av_packet_unref(&m_pkt.pkt);
+
+  if (m_pSSIF)
+    m_pSSIF->Flush();
 
   return (ret >= 0);
 }
@@ -1442,11 +1486,12 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
       {
         if (pStream->codec->codec_id == AV_CODEC_ID_H264_MVC)
         {
-          // ignore MVC extension streams, they are handled specially
+          m_pSSIF = new CDemuxStreamSSIF();
+          m_pSSIF->SetMVCStreamId(streamIdx);
+
           stream = new CDemuxStream();
           stream->type = STREAM_DATA;
-          stream->disabled = true;
-          pStream->need_parsing = AVSTREAM_PARSE_NONE;
+          pStream->codec->codec_type = AVMEDIA_TYPE_DATA;
           break;
         }
         CDemuxStreamVideoFFmpeg* st = new CDemuxStreamVideoFFmpeg(pStream);
@@ -1531,7 +1576,34 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
         {
           if (CDVDCodecUtils::IsH264AnnexB(m_pFormatContext->iformat->name, pStream))
           {
-            // TODO
+            if (m_pSSIF)
+            {
+              m_pSSIF->SetH264StreamId(streamIdx);
+              pStream->codecpar->codec_tag = MKTAG('A', 'M', 'V', 'C');
+
+              AVStream* mvcStream = nullptr;
+              if (m_pInput->IsStreamType(DVDSTREAM_TYPE_BLURAY))
+              {
+                CDVDInputStreamBluray *bluRay = static_cast<CDVDInputStreamBluray*>(m_pInput);
+                if (bluRay->HasMVC())
+                {
+                  st->stereo_mode = bluRay->AreEyesFlipped() ? "block_rl" : "block_lr";
+                  mvcStream = static_cast<CDemuxMVC*>(bluRay->GetDemuxMVC())->GetAVStream();
+                }
+              }
+              else
+                mvcStream = m_pFormatContext->streams[m_pSSIF->GetMVCStreamId()];
+
+              if (mvcStream && pStream->codec->extradata_size > 0 && mvcStream->codec->extradata_size > 0)
+              {
+                uint8_t* extr = pStream->codec->extradata;
+                pStream->codec->extradata = (uint8_t*)av_mallocz(pStream->codec->extradata_size + mvcStream->codec->extradata_size + FF_INPUT_BUFFER_PADDING_SIZE);
+                memcpy(pStream->codec->extradata, extr, pStream->codec->extradata_size);
+                memcpy(pStream->codec->extradata + pStream->codec->extradata_size, mvcStream->codec->extradata, mvcStream->codec->extradata_size);
+                pStream->codec->extradata_size += mvcStream->codec->extradata_size;
+                av_free(extr);
+              }
+            }
           }
           else if (CDVDCodecUtils::ProcessH264MVCExtradata(pStream->codec->extradata, pStream->codec->extradata_size))
           {
@@ -1853,6 +1925,11 @@ std::string CDVDDemuxFFmpeg::GetStreamCodecName(int iStreamId)
 
 bool CDVDDemuxFFmpeg::IsProgramChange()
 {
+  // libavformat is confused by the interleaved SSIF.
+  // disable program management for those
+  if (m_pSSIF && !m_pSSIF->IsBluRay())
+    return false;
+
   if (m_program == UINT_MAX)
     return false;
 
