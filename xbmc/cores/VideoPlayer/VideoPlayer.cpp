@@ -3052,7 +3052,7 @@ void CVideoPlayer::Pause()
 
 bool CVideoPlayer::HasVideo() const
 {
-  return m_HasVideo;
+  return m_HasVideo || GetVideoStream() >= 0;
 }
 
 bool CVideoPlayer::HasAudio() const
