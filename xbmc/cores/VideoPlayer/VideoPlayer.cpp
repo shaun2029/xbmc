@@ -3671,6 +3671,10 @@ bool CVideoPlayer::OpenVideoStream(CDVDStreamInfo& hint, bool reset)
     if (!player->OpenStream(hint))
       return false;
 
+    CDVDInputStream::IExtentionStream* pExt = dynamic_cast<CDVDInputStream::IExtentionStream*>(m_pInputStream);
+    if (pExt && !static_cast<IDVDStreamPlayerVideo*>(player)->SupportsExtention())
+      pExt->DisableExtention();
+
     // look for any EDL files
     m_Edl.Clear();
     if (hint.fpsrate > 0 && hint.fpsscale > 0)
