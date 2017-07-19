@@ -480,6 +480,14 @@ AVRpiZcFrameGeometry CRBP::GetFrameGeometry(uint32_t encoding, unsigned short vi
     geo.height_c = geo.height_y >> 1;
     geo.planes_c = 2;
     break;
+  case MMAL_ENCODING_I420_16:
+    geo.bytes_per_pixel = 2;
+    geo.stride_y = 2 * ((video_width + 31) & ~31);
+    geo.stride_c = geo.stride_y >> 1;
+    geo.height_y = (video_height + 15) & ~15;
+    geo.height_c = geo.height_y >> 1;
+    geo.planes_c = 2;
+    break;
   case MMAL_ENCODING_OPAQUE:
     geo.stride_y = video_width;
     geo.height_y = video_height;
