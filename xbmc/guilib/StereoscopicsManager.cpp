@@ -411,12 +411,34 @@ bool CStereoscopicsManager::OnMessage(CGUIMessage &message)
   switch (message.GetMessage())
   {
   case GUI_MSG_PLAYBACK_STARTED:
-    OnPlaybackStarted();
+    m_playbackStarting = true;
     break;
   case GUI_MSG_PLAYBACK_STOPPED:
   case GUI_MSG_PLAYLISTPLAYER_STOPPED:
+    m_playbackStarting = false;
     OnPlaybackStopped();
     break;
+  default:
+    if (m_playbackStarting)
+    {
+      CLog::Log(LOGNOTICE, "m_playbackStarting");
+      if (g_application.m_pPlayer->IsPlaying())
+      {
+        CLog::Log(LOGNOTICE, "StereoscopicsManager::IsPlaying");
+        if (g_application.m_pPlayer->HasAudio())
+        {
+          CLog::Log(LOGNOTICE, "StereoscopicsManager::HasAudio");
+          VideoStreamInfo videoInfo;
+          g_application.m_pPlayer->GetVideoStreamInfo(CURRENT_STREAM, videoInfo);
+          if (videoInfo.valid)
+          {
+            CLog::Log(LOGNOTICE, "StereoscopicsManager::Stream valid");
+            m_playbackStarting = false;
+            OnPlaybackStarted();
+          }
+        }
+      }
+    }
   }
 
   return false;
