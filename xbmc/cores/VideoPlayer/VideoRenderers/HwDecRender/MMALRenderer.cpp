@@ -967,9 +967,9 @@ void CMMALRenderer::RenderUpdate(int index, int index2, bool clear, unsigned int
   }
 
   // if sharpness setting has changed, we should update it
-  if (m_sharpness != CMediaSettings::GetInstance().GetCurrentVideoSettings().m_Sharpness)
+  if (m_sharpness != m_videoSettings.m_Sharpness)
   {
-    m_sharpness = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_Sharpness;
+    m_sharpness = m_videoSettings.m_Sharpness;
     char command[80], response[80];
     sprintf(command, "scaling_sharpness %d", ((int)(50.0f * (m_sharpness + 1.0f) + 0.5f)));
     vc_gencmd(response, sizeof response, command);
