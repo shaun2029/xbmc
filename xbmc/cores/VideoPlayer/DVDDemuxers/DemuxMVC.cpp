@@ -127,11 +127,12 @@ bool CDemuxMVC::Open(CDVDInputStream* pInput)
   return true;
 }
 
-void CDemuxMVC::Reset()
+bool CDemuxMVC::Reset()
 {
   CDVDInputStream* pInput = m_pInput;
   Dispose();
   Open(pInput);
+  return true;
 }
 
 void CDemuxMVC::Abort()

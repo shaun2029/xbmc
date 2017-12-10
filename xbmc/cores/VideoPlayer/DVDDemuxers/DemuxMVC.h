@@ -32,7 +32,7 @@ public:
   CDemuxMVC();
   virtual ~CDemuxMVC();
   bool Open(CDVDInputStream* pInput);
-  virtual void Reset();
+  virtual bool Reset();
   virtual void Abort();
   virtual void Flush();
   virtual DemuxPacket* Read();
